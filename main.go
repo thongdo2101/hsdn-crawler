@@ -19,7 +19,7 @@ func main() {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	firstUrl := "https://hosocongty.vn/thang-01/2022"
+	firstUrl := "https://hosocongty.vn/thang-02/2022"
 	total, err := getPageList(firstUrl)
 	if err != nil {
 		logrus.Fatal(err)
