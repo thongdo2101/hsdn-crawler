@@ -14,10 +14,10 @@ import (
 )
 
 func main() {
+	tempList := make([]string, 0)
 	list, err := getDone("./done.txt")
 	if err != nil {
-		fmt.Println(err)
-		return
+		logrus.Fatal(err)
 	}
 	firstUrl := "https://hosocongty.vn/thang-01/2022"
 	total, err := getPageList(firstUrl)
@@ -29,23 +29,29 @@ func main() {
 	if err != nil {
 		logrus.Fatal(err)
 	}
+	numb := 1
 	for _, record := range firstPageRecords {
-		fmt.Println(record.Url)
+		fmt.Println(numb, record.Url)
 		flag := false
-		for _, v := range list {
-			if record.Url == v {
+		for i := 0; i < len(list); i++ {
+			if list[i] == record.Url {
 				flag = true
-				break
 			}
 		}
 		if !flag {
-			err := getDetail(&record)
+			err := getDetail(&record, tempList)
 			if err != nil {
-				fmt.Println(err)
-				return
+				if err.Error() == "exists" {
+					fmt.Println(err)
+				} else {
+					fmt.Println(err)
+					return
+				}
 			}
+			tempList = append(tempList, record.Url)
 			WriteToFile(record.Url, "./done.txt")
 		}
+		numb++
 	}
 	for i := 1; i <= *total; i++ {
 		url := fmt.Sprintf(firstUrl+"/page-%d", i)
@@ -54,32 +60,38 @@ func main() {
 			logrus.Fatal(err)
 		}
 		for _, record := range items {
-			fmt.Println(record.Url)
+			fmt.Println(numb, record.Url)
 			flag := false
-			for _, v := range list {
-				if record.Url == v {
+			for i := 0; i < len(list); i++ {
+				if list[i] == record.Url {
 					flag = true
-					break
 				}
 			}
 			if !flag {
-				err := getDetail(&record)
+				// go getDetail(&record, tempList)
+				err := getDetail(&record, tempList)
 				if err != nil {
-					fmt.Println(err)
-					return
+					if err.Error() == "exists" {
+						fmt.Println(err)
+					} else {
+						fmt.Println(err)
+						return
+					}
 				}
-				WriteToFile(record.Url, "./done.txt")
 			}
+			tempList = append(tempList, record.Url)
+			WriteToFile(record.Url, "./done.txt")
+			numb++
 		}
 	}
 
 }
 
 type Record struct {
-	Url         string
-	Name        string
-	TaxNumber   string
-	Address     string
+	Url         string //
+	Name        string //
+	TaxNumber   string //
+	Address     string //
 	PhoneNumber string
 	Deputy      string
 	MainField   string
@@ -199,7 +211,21 @@ func ListAnchor(doc *html.Node) ([]string, error) {
 	return result, nil
 }
 
-func getDetail(record *Record) error {
+func getDetail(record *Record, tempList []string) error {
+	list, err := getDone("./done.txt")
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	for i := 0; i < len(list); i++ {
+		if list[i] == record.Url {
+			return fmt.Errorf("exists")
+		}
+	}
+	// for i := 0; i < len(tempList); i++ {
+	// 	if list[i] == record.Url {
+	// 		return fmt.Errorf("exists")
+	// 	}
+	// }
 	firstRes, err := resty.New().R().Post(record.Url)
 	if err != nil {
 		return err
@@ -235,12 +261,14 @@ func getDetail(record *Record) error {
 		break
 	}
 	// <ul class='hsct'><li><label><i class="fa fa-user-o"></i> Đại diện pháp luật:</label><span><a href="search?key=
-	r4 := regexp.MustCompile(`<ul class='hsct'><li><label><i class="fa fa-user-o"></i> Đại diện pháp luật:</label><span><a href="search?key=(.*)&opt=1" title=`)
+	r4 := regexp.MustCompile(`<li><label><i class="fa fa-user-o"></i> Đại diện pháp luật:</label>(.*)</a></span></li><li><label><i class="`)
 	ownerPart := r4.FindAllString(string(firstRes.Body()), -1)
 	for _, v := range ownerPart {
-		v := strings.Replace(v, `<ul class='hsct'><li><label><i class="fa fa-user-o"></i> Đại diện pháp luật:</label><span><a href="search?key=`, "", -1)
-		v = strings.Replace(v, `&opt=1" title=`, "", -1)
-		record.Deputy = v
+		v := strings.Replace(v, `<li><label><i class="fa fa-user-o"></i> Đại diện pháp luật:</label>`, "", -1)
+		v = strings.Replace(v, `</a></span></li><li><label><i class="`, "", -1)
+		tempArr := strings.Split(v, `&opt=1" title="`)
+		tempArr[0] = strings.ReplaceAll(tempArr[0], `<span><a href="search?key=`, "")
+		record.Deputy = tempArr[0]
 		break
 	}
 	r5 := regexp.MustCompile(`<i class="fa fa fa-phone"></i> Điện thoại:</label><span class='highlight'>(.*)</span></li><li><label><i class="fa fa-calendar"></i>`)
@@ -248,7 +276,8 @@ func getDetail(record *Record) error {
 	for _, v := range phonePart {
 		v := strings.Replace(v, `<i class="fa fa fa-phone"></i> Điện thoại:</label><span class='highlight'>`, "", -1)
 		v = strings.Replace(v, `</span></li><li><label><i class="fa fa-calendar"></i>`, "", -1)
-		record.PhoneNumber = v
+		tempArr := strings.Split(v, `</span></li><li><label><i class="fa fa-envelope-o"></i>`)
+		record.PhoneNumber = tempArr[0]
 		break
 	}
 	r6 := regexp.MustCompile(`<li><label><i class="fa fa-calendar"></i> Ngày cấp:</label><span> <a href="ngay-(.*)" title="Danh sách công ty thành lập`)
@@ -267,12 +296,20 @@ func getDetail(record *Record) error {
 		record.Status = v
 		break
 	}
-
+	r8 := regexp.MustCompile(`<li><label><i class="fa fa-anchor"></i> Ngành nghề chính:</label><span>(.*)</a></span></li><li><label><i class=`)
+	mainFieldPart := r8.FindAllString(string(firstRes.Body()), -1)
+	for _, v := range mainFieldPart {
+		v := strings.Replace(v, `<li><label><i class="fa fa-anchor"></i> Ngành nghề chính:</label><span>`, "", -1)
+		v = strings.Replace(v, `</a></span></li><li><label><i class=`, "", -1)
+		tempArr := strings.Split(v, `">`)
+		record.MainField = tempArr[len(tempArr)-1]
+		break
+	}
 	return WriteToFile(BuildString(record), "./data.csv")
 }
 
 func BuildString(record *Record) string {
-	str := fmt.Sprintf(`%s,%s,"%s",%s,%s,%s,"%s"`, record.TaxNumber, record.PhoneNumber, record.Name, record.LisenceDate, record.Status, record.Url, record.Address)
+	str := fmt.Sprintf(`%s,%s,"%s","%s",%s,"%s",%s,%s,"%s"`, record.TaxNumber, record.PhoneNumber, record.Name, record.Deputy, record.LisenceDate, record.MainField, record.Status, record.Url, record.Address)
 	return str
 }
 
